@@ -29,12 +29,11 @@ library(parallel)
 library(progress)
 
 
-setwd("~/EcuadorOpenData/MF_m")
-#load("Loop2.RData")
+setwd("~/hawkescity")
 maxit = 50
 tolA = 0.001
 
-llik_prev <- llik  # para comparar con la iteración anterior
+llik_prev <- llik  # previous log-likelihood value
 
 for (kk in 2:maxit) {
   print("###########################################")
@@ -233,7 +232,7 @@ for (kk in 2:maxit) {
   
   for(i in 1:nrow(events)){
     excite.temporal.edge.correction[i] <-sum(excite.temporal.fun(seq(0, TT-events$days[i], 0.05)+0.6e-5))
-    load(paste("~/EcuadorOpenData/MF/City.Excite.Spatial.Marks/crime1-",substr(100000+i,2,6), ".mark", sep="")) # load mark_temp
+    load(paste("City.Excite.Spatial.Marks/crime1-",substr(100000+i,2,6), ".mark", sep="")) # load mark_temp
     mark_temp <- matrix(mark_temp,ncol=length(excite.spatial.base.x),
                         nrow=length(excite.spatial.base.y))
     excite.spatial.edge.correction [i] <- simpson.2D(mark_temp*excite.spatial.basevalue, dx = 200, dy = 200)
@@ -365,14 +364,6 @@ for (kk in 2:maxit) {
   ###############################################################################################
   ###                             Loglikelihood                                               ###
   ###############################################################################################
-  #bgprobs <- mu * bg.at.events.no.mu / lambda.at.events # \varphi_i :  prob of event i to be events background event
-  
-  # res.optim <- optim(par=sqrt(c(A, mu)), NegLogLikehood, control=list(trace=6))
-  # 
-  # 
-  # mu <- res.optim$par[1]^2
-  # A <- res.optim$par[2]^2
-  
   A <- (length(events$bandwidth) - sum(bgprobs))/mytriggers.at.all.no.A
   mu<- (length(events$bandwidth) - A*mytriggers.at.all.no.A)/bg.at.all.no.mu
   

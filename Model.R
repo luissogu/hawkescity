@@ -32,20 +32,16 @@ library(parallel)
 library(progress)
 library(units)
 
-source("~/EcuadorOpenData/City/functionsSemiHawkes.R") # load functions
-
-setwd("~/EcuadorOpenData/MF_m")
+setwd("~/hawkescity")
+source("functionsSemiHawkes.R") # load functions
 load("guayaquil.RData") # load geometry
 load("crime_gyq.RData") # load geocodes + times
 load("events.RData")
-
-trend_band <- 120
 
 ##################################################################################
 # We make sure our points are within the polygon, and that they have the same CRS
 
 pt <- new_sf
-# 
 pt <- st_transform(pt, crs = 32717)
 city <- st_transform(city, st_crs(pt))
 
@@ -81,27 +77,6 @@ events <- events[order(events$days),]
 TT<- range(events$days)[2] + 1 # final day
 time.marks <- seq (0 , TT ,0.05) # time.marks
 
-###############################################################################
-# Plot of the original Zhuang and Mateu (2019) paper
-
-
-colores <- viridis(80)[cut(events$days, breaks = 80, labels = FALSE)]
-
-par(mfrow = c(2, 2), mar = c(5, 5, 2, 2), cex = 1.2)
-
-plot(st_geometry(city), xlab = "X", ylab = "Y", main = "(a)", border = "grey")
-points(events$coorx, events$coory, col = colores, pch = 16, cex = 0.5)
-
-plot(events$days, events$coory, xlab = "Days", ylab = "Y", col = colores, cex = 0.6, main = "(b)")
-
-plot(events$coorx, events$days, xlab = "X", ylab = "Days", col = colores, cex = 0.6, main = "(c)")
-
-plot(c(0, events$days, TT), c(0:(nrow(events)+1)), type = "s", lwd = 2,
-     xlab = "Days", ylab = "Cum. Freq.", main = "(d)")
-
-par(mfrow = c(1, 1))
-
-##############################################################################
 # Integral for the spatial background
 
 dist.squared <- function(x1, y1, x2, y2) {(x1-x2)^2+(y1-y2)^2}
@@ -231,6 +206,7 @@ bandwidth <- 150
 
 plot(trend.basevalue,type="l")
 save(trend.basevalue,weekly.basevalue,monthly.basevalue,file = "Loop/Loop0/Basevaluetemporal0.RData")
+
 ############################ Spatial base value ###############################################
 bbox <- st_bbox(city)
 
@@ -262,7 +238,6 @@ grid_points <- expand.grid(
 
 grid_sf <- st_as_sf(grid_points, coords = c("x", "y"), crs = st_crs(city))
 
-# Chequear qué puntos caen dentro
 inside_total <- lengths(st_intersects(grid_sf, city)) > 0
 
 background.marks <- matrix(as.integer(inside_total),
@@ -472,15 +447,11 @@ weM <- monthly.fun(events$days)* mub.events / lambda.at.events
 
 # trend tern
 weT <- trend.fun(events$days)* mub.events / lambda.at.events
-
-#weights<- data.frame(weW = weW , weM = weM , weT = weT)
-
-## Weekly term!
+###################################################################################
+## Weekly term
 
 weekly.base <- seq(0, 7, 0.05)
 new.marks <- as.POSIXlt(as.Date("2014-01-01") + events$days)$wday
-
-
 temp <- hist.weighted(new.marks, weW*weights, breaks=weekly.base)
 tband = 1 #original
 weekly.basevalue <- ker.smooth.fft(temp$mids, temp$density, tband)
@@ -496,11 +467,8 @@ mew.marks <- events$month
 
 temp <- hist.weighted(mew.marks, weM*mweights, breaks=monthly.base)
 tband = 1
-
 monthly.basevalue <- ker.smooth.fft(temp$mids, temp$density, tband)
-
 monthly.basevalue <- monthly.basevalue/mean(monthly.basevalue)
-
 plot(monthly.base, monthly.basevalue, type="l",xaxt="n",main = "Monthly at Loop : 1")
 axis(1, at=0:11, labels=month.abb)
 
@@ -663,7 +631,7 @@ for(i in 1:nrow(events)){
   
   temporal.repetance [excite.temporal.base < TT -events$days[i]] <- temporal.repetance [excite.temporal.base < TT -events$days[i]]+1
   
-  load(paste("~/EcuadorOpenData/MF/City.Excite.Spatial.Marks/crime1-",substr(100000+i,2,6), ".mark", sep="")) # load mark_temp
+  load(paste("City.Excite.Spatial.Marks/crime1-",substr(100000+i,2,6), ".mark", sep="")) # load mark_temp
   
   mark_temp <- matrix(mark_temp, nrow = nrow(spatial.repetance), ncol = ncol(spatial.repetance))
   
@@ -691,9 +659,9 @@ rm(list = c("temp.mat"))
 
 ij.mat <- ij.mat[
   events$days[ij.mat[,1]] > events$days[ij.mat[,2]] &  # events j after i
-    events$days[ij.mat[,1]] <= events$days[ij.mat[,2]] + 90.0 &  # Maximum 15 days after
-    abs(events$coorx[ij.mat[,1]] - events$coorx[ij.mat[,2]]) <= 4000 &  # |x_i - x_j| <= 60000
-    abs(events$coory[ij.mat[,1]] - events$coory[ij.mat[,2]]) <= 4000,   # |y_i - y_j| <= 60000
+    events$days[ij.mat[,1]] <= events$days[ij.mat[,2]] + 90.0 &  # Maximum 90 days after
+    abs(events$coorx[ij.mat[,1]] - events$coorx[ij.mat[,2]]) <= 4000 &  # |x_i - x_j| <= 4000
+    abs(events$coory[ij.mat[,1]] - events$coory[ij.mat[,2]]) <= 4000,   # |y_i - y_j| <= 4000
 ]
 
 excite.wghs <- A*(excite.temporal.fun(events$days[ij.mat[,1]]-events$days[ij.mat[,2]])
@@ -805,45 +773,7 @@ rm(list = c("results"))
 
 save(mytriggers.at.all.no.A, mytriggers.at.events.no.A, file = paste0("Loop/Loop",1,"/TriggersLoop",1,".RData"))
 
-###############################################################################################
-###                             Loglikelihood                                               ###
-###############################################################################################
-#bgprobs <- mu * bg.at.events.no.mu / lambda.at.events # \varphi_i :  prob of event i to be events background event
-
-# res.optim <- optim(par=sqrt(c(A, mu)), NegLogLikehood, control=list(trace=6))
-# 
-# 
-# mu <- res.optim$par[1]^2
-# A <- res.optim$par[2]^2
-
-# NegLogLikehood <- function(x){
-#   mu <- x[1]^2
-#   A = x[2]^2
-#   
-#   lambda.at.events <- mu * bg.at.events.no.mu + A * mytriggers.at.events.no.A
-#   lambda.at.all <-  mu*bg.at.all.no.mu + A * mytriggers.at.all.no.A
-#   
-#   - sum(log(lambda.at.events)) + lambda.at.all
-# }
-# 
-# # Optimal
-# res.optim <- optim(par=sqrt(c(A, mu)), NegLogLikehood, control=list(trace=6))
-# llik <- res.optim$value
-# 
-# # Random
-# A_rand <- runif(1)
-# mu_unif <- (dim(events)[1] - A_rand*mytriggers.at.all.no.A)/bg.at.all.no.mu
-# res.optim.rd <- optim(par=sqrt(c(sqrt(A_rand),sqrt(mu_unif))), NegLogLikehood, control=list(trace=6))
-# llik.rand <- res.optim.rd$value
-# 
-# 
-# if(llik > llik.rand){
-#   res.optim <- res.optim.rd
-# }
-# 
-# mu <- res.optim$par[1]^2
-# A <- res.optim$par[2]^2
-
+#########################################################################################
 A <- (length(events$bandwidth) - sum(bgprobs))/mytriggers.at.all.no.A
 mu<- (length(events$bandwidth) - A*mytriggers.at.all.no.A)/bg.at.all.no.mu
 
@@ -855,7 +785,6 @@ llik<- -(- sum(log(lambda.at.events)) + lambda.at.all)
 bgprobs <- mu * bg.at.events.no.mu / lambda.at.events # \varphi_i :  prob of event i to be events background event
 
 save(mu,A,llik, lambda.at.all,lambda.at.events, file = paste0("Loop/Loop",1,"/Results.RData"))
-
 
 
 
