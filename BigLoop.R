@@ -12,62 +12,90 @@
 
 # This code will run the rest of the iterations
 
+library(osmdata)
+library(sf)
+library(dplyr)
+library(polyCub)
+library(spatstat)
+library(stopp)
+library(viridis)
+library(foreach)
+library(doParallel)
+library('GEOmap')
+library('geometry')
+library(ggplot2)
+library(fields)
+library(parallel)
+library(progress)
 
-for(kk in 2:30){
+
+setwd("~/EcuadorOpenData/MF_m")
+#load("Loop2.RData")
+maxit = 50
+tolA = 0.001
+
+llik_prev <- llik  # para comparar con la iteración anterior
+
+for (kk in 2:maxit) {
   print("###########################################")
   
   print(paste0("Starting Loop: ",kk))
   
   print("###########################################")
   
-  dir.create(paste0("~/EcuadorOpenData/City/Model6-SA2/Loop", kk), showWarnings = FALSE)
+  dir.create(paste0("Loop/Loop", kk), showWarnings = FALSE)
   
   lambda.at.events <- mu * bg.at.events.no.mu + A * mytriggers.at.events.no.A
   
   bgprobs <- mu * bg.at.events.no.mu / lambda.at.events
+  
   weW <- weekly.fun(events$days) * mub.events / lambda.at.events
-  weM <- monthly.fun(events$days) * mub.events / lambda.at.events
   weT <- trend.fun(events$days) * mub.events / lambda.at.events
+  weM <- monthly.fun(events$days) * mub.events / lambda.at.events
   
   
   ### Weekly
-  weekly.base <- seq(0, 7, 0.005)
+  weekly.base <- seq(0, 7, 0.05)
   new.marks <- as.POSIXlt(as.Date("2014-01-01") + events$days)$wday
   temp <- hist.weighted(new.marks, weW*weights, breaks=weekly.base)
-  tband = 0.5
+  tband = 1
   weekly.basevalue <- ker.smooth.fft(temp$mids, temp$density, tband)
   weekly.basevalue <- weekly.basevalue/mean(weekly.basevalue)
   
-  png(paste0("~/EcuadorOpenData/City/Model6-SA2/Loop", kk, "/weekly.png"))
+  png(paste0("Loop/Loop", kk, "/weekly.png"))
   plot(weekly.base, weekly.basevalue, type="l", main=paste0("Weekly at Loop: ", kk), xaxt="n")
   axis(1, at=seq(0, 7, by=1), labels=c("Sunday","Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", ""))
   
   dev.off()
   
+  
   ### Monthly
-  monthly <- seq(0,12,0.05)
+  monthly.base<- seq(0,12,0.05)
   mew.marks <- events$month
-  temp <- hist.weighted(mew.marks, weM*mweights, breaks=monthly)
+  
+  temp <- hist.weighted(mew.marks, weM*mweights, breaks=monthly.base)
   tband = 1
   monthly.basevalue <- ker.smooth.fft(temp$mids, temp$density, tband)
   monthly.basevalue <- monthly.basevalue/mean(monthly.basevalue)
   
-  png(paste0("~/EcuadorOpenData/City/Model6-SA2/Loop", kk, "/monthly.png"))
-  plot(monthly, monthly.basevalue, type="l", xaxt="n", main = paste0("Monthly at Loop : ", kk))
+  png(paste0("Loop/Loop", kk, "/weekly.png"))
+  plot(monthly.base, monthly.basevalue, type="l", main=paste0("Weekly at Loop: ", kk), xaxt="n")
   axis(1, at=0:11, labels=month.abb)
+  
   dev.off()
+  
   
   ### Trend
   library(foreach)
   library(doParallel)
   
-  cl <- makeCluster(2)
+  cl <- makeCluster(4)
   registerDoParallel(cl)
   
-  wghs.trend <- trend.fun(events$days) / lambda.at.events
-  trend.base <- seq(0, TT, 0.005)
+  wghs.trend <- trend.fun(events$days)*mub.events/ lambda.at.events
+  trend.base <- time.marks
   trend.basevalue <- rep(0, length(time.marks))
-  bandwidth <- 90
+  bandwidth <- 150
   
   clusterExport(cl, varlist = c("wghs.trend", "events", "time.marks", "TT", "bandwidth"))
   
@@ -84,7 +112,7 @@ for(kk in 2:30){
   stopCluster(cl)
   
   
-  png(paste0("~/EcuadorOpenData/City/Model6-SA2/Loop", kk, "/trend.png"))
+  png(paste0("Loop/Loop", kk, "/trend.png"))
   plot(time.marks, trend.basevalue, type = "l", main = paste0("Trend at Loop : ", kk))
   dev.off()
   
@@ -119,7 +147,7 @@ for(kk in 2:30){
   
   valid_grid <- grid_data[grid_data$marks == 1, ]
   
-  png(paste0("~/EcuadorOpenData/City/Model6-SA2/Loop", kk, "/spatialbackground.png"))
+  png(paste0("Loop/Loop", kk, "/spatialbackground.png"))
   
   print(
     ggplot() +
@@ -153,8 +181,8 @@ for(kk in 2:30){
   dev.off()
   
   
-  save(background.basevalue, trend.basevalue, monthly.basevalue, weekly.basevalue,
-       file = paste0("~/EcuadorOpenData/City/Model6-SA2/Loop", kk, "/BasevalueLoop", kk, ".RData"))
+  save(background.basevalue, trend.basevalue, weekly.basevalue,
+       file = paste0("Loop/Loop", kk, "/BasevalueLoop", kk, ".RData"))
   
   print(paste0("Full background complete Loop: ",kk))
   
@@ -168,7 +196,7 @@ for(kk in 2:30){
   }
   
   monthly.fun <- function(x){
-    approxfun(monthly,monthly.basevalue, yleft=0, yright=0)(x- as.integer(x/12)*12)
+    approxfun(monthly.base,monthly.basevalue, yleft=0, yright=0)(x- as.integer(x/12)*12)
   }
   
   background.spatial.fun <- function(x,y) (interp.surface(obj=list(x=background.base$x, 
@@ -182,11 +210,11 @@ for(kk in 2:30){
   
   mub <- background.spatial.fun(background.basex,background.basey) # spatial for all the grid
   
-  bg.at.all.no.mu <- (mean(trend.fun(time.marks)*weekly.fun(time.marks) * monthly.fun(time.marks))*TT*
+  bg.at.all.no.mu <- (mean(trend.fun(time.marks)*weekly.fun(time.marks)*monthly.fun(time.marks))*TT*
                         mean(mub*background.marks)*
                         (Xrange[2]-Xrange[1])*(Yrange[2]-Yrange[1]))
   
-  save(trend.fun,monthly.fun, weekly.fun, background.spatial.fun,mub.events,bg.at.events.no.mu,mub, bg.at.all.no.mu, file = paste0("~/EcuadorOpenData/City/Model6-SA2/Loop", kk, "/FunctionsLoop", kk, ".RData"))
+  #save(trend.fun, weekly.fun, background.spatial.fun,mub.events,bg.at.events.no.mu,mub, bg.at.all.no.mu, file = paste0("Loop/Loop", kk, "/FunctionsLoop", kk, ".RData"))
   
   
   print("Starting Exciting: ")
@@ -205,10 +233,10 @@ for(kk in 2:30){
   
   for(i in 1:nrow(events)){
     excite.temporal.edge.correction[i] <-sum(excite.temporal.fun(seq(0, TT-events$days[i], 0.05)+0.6e-5))
-    load(paste("~/EcuadorOpenData/City/Model6-SA1/City.Excite.Spatial.Marks/crime1-",substr(100000+i,2,6), ".mark", sep="")) # load mark_temp
+    load(paste("~/EcuadorOpenData/MF/City.Excite.Spatial.Marks/crime1-",substr(100000+i,2,6), ".mark", sep="")) # load mark_temp
     mark_temp <- matrix(mark_temp,ncol=length(excite.spatial.base.x),
                         nrow=length(excite.spatial.base.y))
-    excite.spatial.edge.correction [i] <- simpson.2D(mark_temp*excite.spatial.basevalue, dx = 450, dy = 450)
+    excite.spatial.edge.correction [i] <- simpson.2D(mark_temp*excite.spatial.basevalue, dx = 200, dy = 200)
     pb$tick()
   }
   
@@ -236,7 +264,7 @@ for(kk in 2:30){
                                              x.breaks= excite.spatial.base.x,
                                              y.breaks= excite.spatial.base.y)
   
-  excite.spatial.mark2 <- (excite.spatial.basex ^2 + excite.spatial.basey^2 < 30500^2) # (?)
+  excite.spatial.mark2 <- (excite.spatial.basex ^2 + excite.spatial.basey^2 < 4200^2) # (?)
   
   temp<- spatial.repetance.fun(excite.spatial.series$x.mids%o%rep(1, length(excite.spatial.series$y.mids)),
                                rep(1, length(excite.spatial.series$y.mids))%o%excite.spatial.series$x.mids)
@@ -244,12 +272,12 @@ for(kk in 2:30){
   
   excite.spatial.basevalue <- ker.smooth.2D.fft(excite.spatial.series$x.mids,
                                                 excite.spatial.series$y.mids,
-                                                #excite.spatial.series$density/temp,
-                                                excite.spatial.series$density,
-                                                x.bandwidth=2000,
-                                                y.bandwidth=2000)*excite.spatial.mark2
+                                                excite.spatial.series$density/temp,
+                                                #excite.spatial.series$density,
+                                                x.bandwidth=300,
+                                                y.bandwidth=300)*excite.spatial.mark2
   
-  excite.spatial.basevalue <- excite.spatial.basevalue/simpson.2D(excite.spatial.basevalue, dx = 450, dy = 450)
+  excite.spatial.basevalue <- excite.spatial.basevalue/simpson.2D(excite.spatial.basevalue, dx = 200, dy = 200)
   
   
   excite.temporal.fun <- approxfun(seq(0, 90, 0.05)+0.6e-12, excite.temporal.basevalue, 
@@ -264,19 +292,19 @@ for(kk in 2:30){
     temp
   }
   
-  png(paste0("~/EcuadorOpenData/City/Model6-SA2/Loop", kk, "/excite_temporal.png"))
+  png(paste0("Loop/Loop", kk, "/excite_temporal.png"))
   plot(excite.temporal.base, excite.temporal.basevalue, type="l", lwd=2, main = paste0("Excite Temporal Loop: ", kk))
   dev.off()
   
-  png(paste0("~/EcuadorOpenData/City/Model6-SA2/Loop", kk, "/excite_spatial.png"))
+  png(paste0("Loop/Loop", kk, "/excite_spatial.png"))
   filled.contour(excite.spatial.base.x,excite.spatial.base.y,
                  (excite.spatial.basevalue),
                  main = paste0("Spatial triggering Loop: ", kk))
   dev.off()
   
-  save(excite.temporal.basevalue, excite.spatial.basevalue, temporal.repetance.fun, spatial.repetance.fun,
-       excite.temporal.fun, excite.spatial.fun,
-       file = paste0("~/EcuadorOpenData/City/Model6-SA2/Loop", kk, "/ExciteLoop", kk, ".RData"))
+  # save(excite.temporal.basevalue, excite.spatial.basevalue, temporal.repetance.fun, spatial.repetance.fun,
+  #      excite.temporal.fun, excite.spatial.fun,
+  #      file = paste0("Loop/Loop", kk, "/ExciteLoop", kk, ".RData"))
   
   print(paste0("Triggering effect complete Loop: ",kk))
   
@@ -332,7 +360,7 @@ for(kk in 2:30){
   
   rm(list = c("results"))
   
-  save(mytriggers.at.all.no.A, mytriggers.at.events.no.A, file = paste0("~/EcuadorOpenData/City/Model6-SA2/Loop",kk,"/TriggersLoop",kk,".RData"))
+  #save(mytriggers.at.all.no.A, mytriggers.at.events.no.A, file = paste0("Loop/Loop",kk,"/TriggersLoop",kk,".RData"))
   
   ###############################################################################################
   ###                             Loglikelihood                                               ###
@@ -354,84 +382,91 @@ for(kk in 2:30){
   lambda.at.all <-  mu* bg.at.all.no.mu + A * mytriggers.at.all.no.A
   
   llik<- -(- sum(log(lambda.at.events)) + lambda.at.all)
+  #ll <- c(ll,llik)
   bgprobs <- mu * bg.at.events.no.mu / lambda.at.events # \varphi_i :  prob of event i to be events background event
   
-  save(mu,A,llik, lambda.at.all,lambda.at.events, file = paste0("~/EcuadorOpenData/City/Model6-SA2/Loop",kk,"/Results.RData"))
-  print(paste0("End ofLoop: ",kk))
-}
-
-
-
-mu_values <- NULL
-A_values <- NULL
-llik_values <- NULL
-iteration <- NULL
-lambda.all <- NULL
-
-for (i in 0:30) {
-  file_path <- paste0("~/EcuadorOpenData/City/Model6-SA2/Loop", i, "/Results.RData")
-  env <- new.env()
-  load(file_path, envir = env)
+  save(mu, A, llik, lambda.at.all, lambda.at.events,
+       file = paste0("Loop/Loop", kk, "/Results.RData"))
   
-  mu_values <- c(mu_values, env$mu)
-  A_values <- c(A_values, env$A)
-  llik_values <- c(llik_values, env$llik)
-  iteration <- c(iteration, i)
-  lambda.all <- c(lambda.all,env$lambda.at.all)
+  print(paste0("End of Loop: ", kk))
+  
+  # --- Condiciones de parada ---
+  stop_condition <- FALSE
+  if (A < 0.001) {
+    print("A < 0.001")
+    stop_condition <- TRUE
+  } else if (!is.na(llik_prev) && abs(llik - llik_prev) < tolA) {
+    print(paste0("⚠️ |ΔA| = ", round(abs(llik- llik_prev), 6), " < ", tolA, " → terminando iteraciones."))
+    stop_condition <- TRUE
+  }
+  
+  # Guardar todo si se cumple alguna condición de parada
+  if (stop_condition || kk == maxit) {
+    save.image(file = paste0("Loop","/FullEnvironment_Loop", kk, ".RData"))
+    print(paste0("💾 Estado completo guardado en Loop/Loop", kk, "/FullEnvironment_Loop", kk, ".RData"))
+    break
+  }
+  
+  llik_prev <- llik
 }
 
-# Summary : for the iterations + 1
-
-results_summary <- data.frame(
-  Iteration = iteration,
-  mu = mu_values,
-  A = A_values,
-  llik = llik_values,
-  lambda = lambda.all
-)
-
-print(results_summary)
-
-plot(llik_values,type = "l",main = "Loglikelihood no month")
-plot((mu_values),type = "l",main = "Mu_0 no month")
-plot((A_values),type = "l",main = "A no month")
-plot(lambda.all,type = "l",main = "Integral lambda no month")
-
-
-
-##############################################################
-library(ggplot2)
-library(patchwork)
-
-df1 <- data.frame(x = seq_along(llik_values), y = llik_values)
-df2 <- data.frame(x = seq_along(mu_values), y = mu_values)
-df3 <- data.frame(x = seq_along(A_values), y = A_values)
-df4 <- data.frame(x = seq_along(lambda.all), y = lambda.all)
-
-p1 <- ggplot(df1, aes(x, y)) +
-  geom_line(color = "darkblue", size = 1) +
-  labs(title = "Loglikelihood", x = "Index", y = "LogLik") +
-  theme_minimal()
-
-p2 <- ggplot(df2, aes(x, y)) +
-  geom_line(color = "darkgreen", size = 1) +
-  labs(title = "Mu_0", x = "Index", y = "Mu_0") +
-  theme_minimal()
-
-p3 <- ggplot(df3, aes(x, y)) +
-  geom_line(color = "tomato", size = 1) +
-  labs(title = "A ", x = "Index", y = "A") +
-  theme_minimal()
-
-p4 <- ggplot(df4, aes(x, y)) +
-  geom_line(color = "purple", size = 1) +
-  labs(title = "Integral lambda", x = "Index", y = "Lambda") +
-  theme_minimal()
-
-# Combinar con patchwork
-combined_plot <- (p1 | p2) / (p3 | p4) +
-  plot_annotation(title = "Model 6 ()")
-
-combined_plot
-ggsave("/home/research/luisasg/EcuadorOpenData/City/Model6/model_diagnostics_ggplot.png", combined_plot, width = 12, height = 8, dpi = 300)
-
+# save.image(paste0("Loop",kk,".RData"))
+#
+# setwd("~/EcuadorOpenData/UsingSubcircuitos2")
+# 
+# mu_values <- NULL
+# A_values <- NULL
+# llik_values <- NULL
+# iteration <- NULL
+# lambda.all <- NULL
+# 
+# for (i in 1:kk) {
+#   file_path <- paste0("Loop/Loop", i, "/Results.RData")
+#   env <- new.env()
+#   load(file_path, envir = env)
+# 
+#   mu_values <- c(mu_values, env$mu)
+#   A_values <- c(A_values, env$A)
+#   llik_values <- c(llik_values, env$llik)
+#   iteration <- c(iteration, i)
+#   lambda.all <- c(lambda.all,env$lambda.at.all)
+# }
+# 
+# # Summary : for the iterations + 1
+# 
+# results_summary <- data.frame( Iteration = iteration, mu = mu_values, A =
+# A_values, llik = llik_values, lambda = lambda.all )
+# 
+# print(results_summary)
+# 
+# plot(llik_values,type = "l",main = "Loglikelihood no month")
+# plot((mu_values),type = "l",main = "Mu_0 no month") 
+# plot((A_values),type = "l",main = "A no month")
+# plot(lambda.all,type = "l",main = "Integral lambda no month")
+# 
+# 
+# 
+# ##############################################################
+# library(ggplot2)
+# library(patchwork)
+# 
+# df1 <- data.frame(x = seq_along(llik_values), y = llik_values)
+# df2 <- data.frame(x = seq_along(mu_values), y = mu_values)
+# df3 <- data.frame(x = seq_along(A_values), y = A_values)
+# df4 <- data.frame(x = seq_along(lambda.all), y = lambda.all)
+# 
+# p1 <- ggplot(df1, aes(x, y)) + geom_line(color = "darkblue", size = 1) +
+# labs(title = "Loglikelihood", x = "Index", y = "LogLik") + theme_minimal()
+# 
+# p2 <- ggplot(df2, aes(x, y)) + geom_line(color = "darkgreen", size = 1) +
+# labs(title = "Mu_0", x = "Index", y = "Mu_0") + theme_minimal()
+# 
+# p3 <- ggplot(df3, aes(x, y)) + geom_line(color = "tomato", size = 1) +
+# labs(title = "A ", x = "Index", y = "A") + theme_minimal()
+# 
+# # Combinar con patchwork
+# combined_plot <- (p1) / (p2 | p3) +
+# plot_annotation(title = paste0("Model Report 3"))
+# # 
+# combined_plot
+# # # ggsave("model_iterations.png", combined_plot, width = 12, height= 8, dpi = 300)
